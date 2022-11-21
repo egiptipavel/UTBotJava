@@ -31,7 +31,7 @@ val goUint64TypeId = GoTypeId("uint64")
 val goUint8TypeId = GoTypeId("uint8")
 val goUintPtrTypeId = GoTypeId("uintptr")
 
-private val goPrimitives = setOf(
+val goPrimitives = setOf(
     goByteTypeId,
     goBoolTypeId,
     goComplex128TypeId,

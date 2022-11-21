@@ -1,30 +1,103 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"go/ast"
+	"go/importer"
+	"go/parser"
+	"go/token"
 	"go/types"
 	"sort"
 )
 
-func implementsError(typ types.Type) bool {
-	// TODO: get types.Interface of "error", for now straightforward strings equals
-	//if(types.Implements(typ.Underlying(), ErrorInterface)) {
-	//	return true
-	//}
-	return typ.Underlying().String() == "interface{Error() string}"
+var errorInterface = func() *types.Interface {
+	// TODO not sure if it's best way
+	src := `package src
+
+import "errors"
+
+var x = errors.New("")
+`
+	fset := token.NewFileSet()
+	fileAst, astErr := parser.ParseFile(fset, "", src, 0)
+	checkError(astErr)
+	typesConfig := types.Config{Importer: importer.Default()}
+	info := &types.Info{
+		Defs:  make(map[*ast.Ident]types.Object),
+		Uses:  make(map[*ast.Ident]types.Object),
+		Types: make(map[ast.Expr]types.TypeAndValue),
+	}
+	_, typesCheckErr := typesConfig.Check("", fset, []*ast.File{fileAst}, info)
+	checkError(typesCheckErr)
+	for _, obj := range info.Defs {
+		if obj != nil {
+			return obj.Type().Underlying().(*types.Interface)
+		}
+	}
+	return nil
+}()
+
+func implementsError(typ *types.Named) bool {
+	return types.Implements(typ, errorInterface)
 }
 
-func toAnalyzedType(typ types.Type) AnalyzedType {
-	implementsError := implementsError(typ)
-	var name string
-	if implementsError {
-		name = "error"
-	} else {
-		name = typ.Underlying().String()
+//goland:noinspection GoPreferNilSlice
+func toAnalyzedType(typ types.Type) interface{} {
+	getValueOfFieldName := func(elem interface{}) (string, error) {
+		switch elem.(type) {
+		case AnalyzedPrimitiveType:
+			return elem.(AnalyzedPrimitiveType).Name, nil
+		case AnalyzedStructType:
+			return elem.(AnalyzedStructType).Name, nil
+		case AnalyzedArrayType:
+			return elem.(AnalyzedArrayType).Name, nil
+		default:
+			return "", errors.New("this type not supported in function toAnalyzedType")
+		}
 	}
-	return AnalyzedType{
-		Name:            name,
-		ImplementsError: implementsError,
+
+	var result interface{}
+	underlyingType := typ.Underlying()
+	switch underlyingType.(type) {
+	case *types.Basic:
+		basicType := underlyingType.(*types.Basic)
+		name := basicType.Name()
+		result = AnalyzedPrimitiveType{Name: name}
+	case *types.Struct:
+		namedType := typ.(*types.Named)
+		name := namedType.Obj().Name()
+		isError := implementsError(namedType)
+
+		structType := underlyingType.(*types.Struct)
+		fields := []AnalyzedField{}
+		for i := 0; i < structType.NumFields(); i++ {
+			field := structType.Field(i)
+			fields = append(fields, AnalyzedField{field.Name(), toAnalyzedType(field.Type())})
+		}
+
+		result = AnalyzedStructType{
+			Name:            name,
+			ImplementsError: isError,
+			Fields:          fields,
+		}
+	case *types.Array:
+		arrayType := typ.(*types.Array)
+
+		arrayElemType := toAnalyzedType(arrayType.Elem())
+		elemTypeName, err := getValueOfFieldName(arrayElemType)
+		checkError(err)
+
+		length := arrayType.Len()
+		name := fmt.Sprintf("[%d]%s", length, elemTypeName)
+
+		result = AnalyzedArrayType{
+			Name:        name,
+			ElementType: arrayElemType,
+			Length:      length,
+		}
 	}
+	return result
 }
 
 // for now supports only basic and error result types
@@ -33,8 +106,19 @@ func checkTypeIsSupported(typ types.Type, isResultType bool) bool {
 	if _, ok := underlyingType.(*types.Basic); ok {
 		return true
 	}
-	if isResultType && implementsError(underlyingType) {
+	if structType, ok := underlyingType.(*types.Struct); ok {
+		if isResultType {
+			return false
+		}
+		for i := 0; i < structType.NumFields(); i++ {
+			if !checkTypeIsSupported(structType.Field(i).Type(), isResultType) {
+				return false
+			}
+		}
 		return true
+	}
+	if arrayType, ok := underlyingType.(*types.Array); ok {
+		return checkTypeIsSupported(arrayType.Elem(), isResultType)
 	}
 	return false
 }
@@ -68,7 +152,6 @@ func checkIsSupported(signature *types.Signature) bool {
 	return true
 }
 
-//goland:noinspection GoPreferNilSlice
 func collectTargetAnalyzedFunctions(info *types.Info, targetFunctionsNames []string) (
 	analyzedFunctions []AnalyzedFunction,
 	notSupportedFunctionsNames []string,
@@ -90,7 +173,7 @@ func collectTargetAnalyzedFunctions(info *types.Info, targetFunctionsNames []str
 			analyzedFunction := AnalyzedFunction{
 				Name:        typedObj.Name(),
 				Parameters:  []AnalyzedFunctionParameter{},
-				ResultTypes: []AnalyzedType{},
+				ResultTypes: []interface{}{},
 				position:    typedObj.Pos(),
 			}
 

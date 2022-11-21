@@ -7,19 +7,7 @@ import org.utbot.framework.plugin.api.*
  *
  * To see its children check GoTypesApi.kt at org.utbot.go.api.
  */
-open class GoClassId(private val goName: String) : ClassId(goName) {
-
-    override fun toString(): String = goName
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is GoClassId) return false
-
-        return name == other.name
-    }
-
-    override fun hashCode(): Int = name.hashCode()
-
+abstract class GoClassId(name: String) : ClassId(name) {
     override val isNullable: Boolean
         get() = error("not supported")
     override val canonicalName: String
@@ -72,4 +60,14 @@ open class GoClassId(private val goName: String) : ClassId(goName) {
 open class GoUtModel(
     override val classId: GoClassId,
     val requiredImports: Set<String>
-) : UtModel(classId)
+) : UtModel(classId) {
+    override fun toString(): String = error("not supported")
+}
+
+/**
+ * Class for Go struct constructors.
+ */
+class GoStructConstructorId(
+    classId: GoClassId,
+    val fields: List<FieldId>,
+) : ConstructorId(classId, fields.map { it.declaringClass })

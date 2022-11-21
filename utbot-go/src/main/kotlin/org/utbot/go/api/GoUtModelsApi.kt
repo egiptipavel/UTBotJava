@@ -22,7 +22,6 @@ open class GoUtPrimitiveModel(
             ExplicitCastMode.DEPENDS
         }
 ) : GoUtModel(typeId, requiredImports) {
-
     override fun toString() = when (explicitCastMode) {
         ExplicitCastMode.REQUIRED -> toCastedValueGoCode()
         ExplicitCastMode.DEPENDS, ExplicitCastMode.NEVER -> toValueGoCode()
@@ -30,6 +29,31 @@ open class GoUtPrimitiveModel(
 
     open fun toValueGoCode(): String = "$value"
     fun toCastedValueGoCode(): String = "$typeId(${toValueGoCode()})"
+}
+
+class GoUtStructModel(
+    val value: List<Pair<String, GoUtModel>>,
+    typeId: GoTypeId,
+    requiredImports: Set<String>
+) : GoUtModel(typeId, requiredImports) {
+    override fun toString(): String = "${classId.name}${toStringWithoutStructName()}"
+    fun toStringWithoutStructName(): String = "{${value.joinToString { "${it.first}: ${it.second}" }}}"
+}
+
+class GoUtArrayModel(
+    val value: List<GoUtModel>,
+    typeId: GoTypeId,
+    val length: Int,
+    requiredImports: Set<String>
+) : GoUtModel(typeId, requiredImports) {
+    override fun toString(): String = when (this.classId.elementClassId) {
+        is GoStructTypeId -> "[$length]${classId.elementClassId!!.simpleName}{${
+            value.joinToString {
+                (it as GoUtStructModel).toStringWithoutStructName()
+            }
+        }}"
+        else -> "[$length]${classId.elementClassId!!.simpleName}{${value.joinToString()}}"
+    }
 }
 
 class GoUtFloatNaNModel(

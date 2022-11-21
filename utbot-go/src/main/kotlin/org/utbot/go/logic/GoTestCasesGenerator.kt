@@ -16,7 +16,7 @@ object GoTestCasesGenerator {
         eachExecutionTimeoutsMillisConfig: EachExecutionTimeoutsMillisConfig,
     ): List<GoUtFuzzedFunctionTestCase> {
         val fuzzedFunctions = functions.map { function ->
-            GoFuzzer.goFuzzing(function = function).map { fuzzedParametersValues ->
+            GoFuzzer.goFuzzing(function = function).shuffled().take(5).map { fuzzedParametersValues ->
                 GoUtFuzzedFunction(function, fuzzedParametersValues)
             }.toList()
         }.flatten()

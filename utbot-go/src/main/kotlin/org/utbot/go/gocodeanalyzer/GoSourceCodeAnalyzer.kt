@@ -2,14 +2,11 @@ package org.utbot.go.gocodeanalyzer
 
 import org.utbot.common.FileUtil.extractDirectoryFromArchive
 import org.utbot.common.scanForResourcesContaining
-import java.io.File
-import org.utbot.go.api.GoTypeId
-import org.utbot.go.api.GoUtFile
-import org.utbot.go.api.GoUtFunction
-import org.utbot.go.api.GoUtFunctionParameter
+import org.utbot.go.api.*
 import org.utbot.go.util.executeCommandByNewProcessOrFail
 import org.utbot.go.util.parseFromJsonOrFail
 import org.utbot.go.util.writeJsonToFileOrFail
+import java.io.File
 
 object GoSourceCodeAnalyzer {
 
@@ -64,7 +61,6 @@ object GoSourceCodeAnalyzer {
                 GoUtFile(analysisResult.absoluteFilePath, analysisResult.packageName) to analysisResult
             }.associateBy({ (sourceFile, _) -> sourceFile }) { (sourceFile, analysisResult) ->
                 val functions = analysisResult.analyzedFunctions.map { analyzedFunction ->
-                    fun AnalyzedType.toGoTypeId() = GoTypeId(this.name, implementsError = this.implementsError)
                     val parameters = analyzedFunction.parameters.map { analyzedFunctionParameter ->
                         GoUtFunctionParameter(
                             analyzedFunctionParameter.name,
@@ -87,6 +83,7 @@ object GoSourceCodeAnalyzer {
                 )
             }
         } finally {
+            // TODO correctly?
             analysisTargetsFile.delete()
             analysisResultsFile.delete()
             goCodeAnalyzerSourceDir.deleteRecursively()

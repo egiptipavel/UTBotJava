@@ -2,20 +2,36 @@ package main
 
 import "go/token"
 
-type AnalyzedType struct {
-	Name            string `json:"name"`
-	ImplementsError bool   `json:"implementsError"`
+type AnalyzedPrimitiveType struct {
+	Name string `json:"name"`
+}
+
+type AnalyzedField struct {
+	Name string      `json:"name"`
+	Type interface{} `json:"type"`
+}
+
+type AnalyzedStructType struct {
+	Name            string          `json:"name"`
+	ImplementsError bool            `json:"implementsError"`
+	Fields          []AnalyzedField `json:"fields"`
+}
+
+type AnalyzedArrayType struct {
+	Name        string      `json:"name"`
+	ElementType interface{} `json:"elementType"`
+	Length      int64       `json:"length"`
 }
 
 type AnalyzedFunctionParameter struct {
-	Name string       `json:"name"`
-	Type AnalyzedType `json:"type"`
+	Name string      `json:"name"`
+	Type interface{} `json:"type"`
 }
 
 type AnalyzedFunction struct {
 	Name        string                      `json:"name"`
 	Parameters  []AnalyzedFunctionParameter `json:"parameters"`
-	ResultTypes []AnalyzedType              `json:"resultTypes"`
+	ResultTypes []interface{}               `json:"resultTypes"`
 	position    token.Pos
 }
 

@@ -1,5 +1,6 @@
 package org.utbot.go.executor
 
+import org.utbot.framework.plugin.api.go.GoUtModel
 import org.utbot.go.api.*
 import org.utbot.go.api.util.*
 import org.utbot.go.logic.EachExecutionTimeoutsMillisConfig
@@ -95,37 +96,30 @@ object GoFuzzedFunctionsExecutor {
         if (rawExecutionResult.timeoutExceeded) {
             return GoUtTimeoutExceeded(timeoutMillis)
         }
-
         if (rawExecutionResult.panicMessage != null) {
-            val (rawValue, rawGoType, implementsError) = rawExecutionResult.panicMessage
-            if (rawValue == null) {
-                return GoUtPanicFailure(GoUtNilModel(goAnyTypeId), goAnyTypeId)
-            }
-            val panicValueSourceGoType = GoTypeId(rawGoType, implementsError = implementsError)
-            val panicValue = if (panicValueSourceGoType.isPrimitiveGoType) {
-                createGoUtPrimitiveModelFromRawValue(rawValue, panicValueSourceGoType)
+            val (rawResultValue, _) = rawExecutionResult.panicMessage
+            val panicValue = if (goPrimitives.map { it.simpleName }.contains(rawResultValue.type)) {
+                createGoUtPrimitiveModelFromRawValue(rawResultValue as PrimitiveValue, GoTypeId(rawResultValue.type))
             } else {
-                GoUtPrimitiveModel(rawValue, goStringTypeId)
+                error("Only primitive panic value is currently supported")
             }
-            return GoUtPanicFailure(panicValue, panicValueSourceGoType)
+            return GoUtPanicFailure(panicValue, GoTypeId(rawResultValue.type))
         }
-
-        if (rawExecutionResult.resultRawValues!!.size != functionResultTypes.size) {
+        if (rawExecutionResult.resultRawValues.size != functionResultTypes.size) {
             error("Function completed execution must have as many result raw values as result types.")
+        }
+        rawExecutionResult.resultRawValues.zip(functionResultTypes).forEach { (rawResultValue, resultType) ->
+            if (!rawResultValue.checkIsEqualTypes(resultType)) {
+                error("Result of function execution must have same type as function result")
+            }
         }
         var executedWithNonNilErrorString = false
         val resultValues =
-            rawExecutionResult.resultRawValues.zip(functionResultTypes).map { (resultRawValue, resultType) ->
-                if (resultType.implementsError && resultRawValue != null) {
+            rawExecutionResult.resultRawValues.zip(functionResultTypes).map { (rawResultValue, resultType) ->
+                if (resultType.implementsError) {
                     executedWithNonNilErrorString = true
                 }
-                if (resultRawValue == null) {
-                    GoUtNilModel(resultType)
-                } else {
-                    // TODO: support errors fairly, i. e. as structs; for now consider them as strings
-                    val nonNilModelTypeId = if (resultType.implementsError) goStringTypeId else resultType
-                    createGoUtPrimitiveModelFromRawValue(resultRawValue, nonNilModelTypeId)
-                }
+                createGoUtModelFromRawValue(rawResultValue, resultType)
             }
         return if (executedWithNonNilErrorString) {
             GoUtExecutionWithNonNilError(resultValues)
@@ -134,7 +128,19 @@ object GoFuzzedFunctionsExecutor {
         }
     }
 
-    private fun createGoUtPrimitiveModelFromRawValue(rawValue: String, typeId: GoTypeId): GoUtPrimitiveModel {
+    private fun createGoUtModelFromRawValue(rawResultValue: RawResultValue, typeId: GoTypeId): GoUtModel {
+        return when (typeId) {
+            is GoStructTypeId -> createGoUtStructModelFromRawValue(rawResultValue as StructValue, typeId)
+            is GoArrayTypeId -> createGoUtArrayModelFromRawValue(rawResultValue as ArrayValue, typeId)
+            else -> createGoUtPrimitiveModelFromRawValue(rawResultValue as PrimitiveValue, typeId)
+        }
+    }
+
+    private fun createGoUtPrimitiveModelFromRawValue(
+        resultValue: PrimitiveValue,
+        typeId: GoTypeId
+    ): GoUtPrimitiveModel {
+        val rawValue = resultValue.value
         if (typeId == goFloat64TypeId || typeId == goFloat32TypeId) {
             return convertRawFloatValueToGoUtPrimitiveModel(rawValue, typeId)
         }
@@ -180,5 +186,25 @@ object GoFuzzedFunctionsExecutor {
                 }
             }
         }
+    }
+
+    private fun createGoUtStructModelFromRawValue(
+        resultValue: StructValue,
+        resultTypeId: GoStructTypeId
+    ): GoUtStructModel {
+        val value = resultValue.value.zip(resultTypeId.fields).map { (value, fieldId) ->
+            fieldId.name to createGoUtModelFromRawValue(value.value, fieldId.declaringClass as GoTypeId)
+        }
+        return GoUtStructModel(value, resultTypeId, emptySet())
+    }
+
+    private fun createGoUtArrayModelFromRawValue(
+        resultValue: ArrayValue,
+        resultTypeId: GoArrayTypeId
+    ): GoUtArrayModel {
+        val value = resultValue.value.map {
+            createGoUtModelFromRawValue(it, resultTypeId.elementClassId as GoTypeId)
+        }
+        return GoUtArrayModel(value, resultTypeId, value.size, emptySet())
     }
 }

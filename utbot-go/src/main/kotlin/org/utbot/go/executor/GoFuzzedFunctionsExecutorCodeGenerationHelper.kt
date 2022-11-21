@@ -9,7 +9,8 @@ import org.utbot.go.util.goRequiredImports
 
 internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
 
-    private val alwaysRequiredImports = setOf("context", "encoding/json", "fmt", "math", "os", "reflect", "testing", "time")
+    private val alwaysRequiredImports =
+        setOf("context", "encoding/json", "errors", "fmt", "math", "os", "reflect", "strings", "testing", "time", "log")
 
     fun generateExecutorTestFileGoCode(
         sourceFile: GoUtFile,
@@ -59,12 +60,12 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             val timeoutMillis = eachExecutionTimeoutsMillisConfig[function]
 
             codeSb.append("\n\t\t__executeFunctionForUtBotGoExecutor__(")
-                .append("\"${function.name}\", $timeoutMillis * time.Millisecond, ")
-                .append("func() []*string {")
+                .append("\"${function.name}\", $timeoutMillis*time.Millisecond, ")
+                .append("func() []interface{} {")
 
             if (function.resultTypes.isEmpty()) {
                 codeSb.append("\n\t\t\t$fuzzedFunctionCall")
-                codeSb.append("\n\t\t\treturn []*string{}")
+                codeSb.append("\n\t\t\treturn []interface{}{}")
             } else {
                 codeSb.append("\n\t\t\treturn __wrapResultValuesForUtBotGoExecutor__($fuzzedFunctionCall)")
             }
@@ -93,19 +94,48 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
 
     private object CodeTemplates {
 
+        private val primitiveValueStruct = """
+            type __PrimitiveValue__ struct {
+            	Type  string `json:"type"`
+            	Value string `json:"value"`
+            }
+        """.trimIndent()
+
+        private val fieldValueStruct = """
+            type __FieldValue__ struct {
+            	Name  string      `json:"name"`
+            	Value interface{} `json:"value"`
+            }
+        """.trimIndent()
+
+        private val structValueStruct = """
+            type __StructValue__ struct {
+            	Type  string           `json:"type"`
+            	Value []__FieldValue__ `json:"value"`
+            }
+        """.trimIndent()
+
+        private val arrayValueStruct = """
+            type __ArrayValue__ struct {
+            	Type        string      `json:"type"`
+            	ElementType string      `json:"elementType"`
+            	Length      int         `json:"length"`
+            	Value       interface{} `json:"value"`
+            }
+        """.trimIndent()
+
         private val panicMessageStruct = """
             type __UtBotGoExecutorRawPanicMessage__ struct {
-            	RawValue        *string `json:"rawValue"`
-            	GoTypeName      string  `json:"goTypeName"`
-            	ImplementsError bool    `json:"implementsError"`
+            	RawResultValue  interface{} `json:"rawResultValue"`
+            	ImplementsError bool        `json:"implementsError"`
             }
         """.trimIndent()
 
         private val rawExecutionResultStruct = """
             type __UtBotGoExecutorRawExecutionResult__ struct {
             	FunctionName    string                              `json:"functionName"`
-                TimeoutExceeded bool                                `json:"timeoutExceeded"`
-            	ResultRawValues []*string                           `json:"resultRawValues"`
+            	TimeoutExceeded bool                                `json:"timeoutExceeded"`
+            	ResultRawValues []interface{}                       `json:"resultRawValues"`
             	PanicMessage    *__UtBotGoExecutorRawPanicMessage__ `json:"panicMessage"`
             }
         """.trimIndent()
@@ -119,7 +149,7 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
         private val checkErrorFunction = """
             func __checkErrorAndExitToUtBotGoExecutor__(err error) {
             	if err != nil {
-            		os.Exit(1)
+            		log.Fatal(err.Error())
             	}
             }
         """.trimIndent()
@@ -142,53 +172,76 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             }
         """.trimIndent()
 
-        private val convertFloat32ValueToStringFunction = """
-            func __convertFloat32ValueToStringForUtBotGoExecutor__(value float32) string {
-            	return __convertFloat64ValueToStringForUtBotGoExecutor__(float64(value))
-            }
-        """.trimIndent()
-
-        private val convertValueToStringFunction = """
-            func __convertValueToStringForUtBotGoExecutor__(value any) string {
-            	if typedValue, ok := value.(error); ok {
-            		return fmt.Sprintf("%#v", typedValue.Error())
-            	}
+        private val convertValueToResultValueFunction = """
+            //goland:noinspection GoPreferNilSlice
+            func __convertValueToResultValue__(valueOfRes reflect.Value) (interface{}, error) {
             	const outputComplexPartsDelimiter = "@"
-            	switch typedValue := value.(type) {
-            	case complex128:
-            		realPartString := __convertFloat64ValueToStringForUtBotGoExecutor__(real(typedValue))
-            		imagPartString := __convertFloat64ValueToStringForUtBotGoExecutor__(imag(typedValue))
-            		return fmt.Sprintf("%v%v%v", realPartString, outputComplexPartsDelimiter, imagPartString)
-            	case complex64:
-            		realPartString := __convertFloat32ValueToStringForUtBotGoExecutor__(real(typedValue))
-            		imagPartString := __convertFloat32ValueToStringForUtBotGoExecutor__(imag(typedValue))
-            		return fmt.Sprintf("%v%v%v", realPartString, outputComplexPartsDelimiter, imagPartString)
-            	case float64:
-            		return __convertFloat64ValueToStringForUtBotGoExecutor__(typedValue)
-            	case float32:
-            		return __convertFloat32ValueToStringForUtBotGoExecutor__(typedValue)
-            	case string:
-            		return fmt.Sprintf("%#v", typedValue)
+
+            	switch valueOfRes.Kind() {
+            	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+            		return __PrimitiveValue__{
+            			Type:  valueOfRes.Kind().String(),
+            			Value: fmt.Sprintf("%#v", valueOfRes.Interface()),
+            		}, nil
+            	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+            		return __PrimitiveValue__{
+            			Type:  valueOfRes.Kind().String(),
+            			Value: fmt.Sprintf("%#v", valueOfRes.Interface()),
+            		}, nil
+            	case reflect.Float32, reflect.Float64:
+            		return __PrimitiveValue__{
+            			Type:  valueOfRes.Kind().String(),
+            			Value: __convertFloat64ValueToStringForUtBotGoExecutor__(valueOfRes.Float()),
+            		}, nil
+            	case reflect.Complex64, reflect.Complex128:
+            		value := valueOfRes.Complex()
+            		realPartString := __convertFloat64ValueToStringForUtBotGoExecutor__(real(value))
+            		imagPartString := __convertFloat64ValueToStringForUtBotGoExecutor__(imag(value))
+            		return __PrimitiveValue__{
+            			Type:  valueOfRes.Kind().String(),
+            			Value: fmt.Sprintf("%v%v%v", realPartString, outputComplexPartsDelimiter, imagPartString),
+            		}, nil
+            	case reflect.String:
+            		return __PrimitiveValue__{
+            			Type:  reflect.String.String(),
+            			Value: fmt.Sprintf("%#v", valueOfRes.String()),
+            		}, nil
+            	case reflect.Struct:
+            		fields := reflect.VisibleFields(valueOfRes.Type())
+            		resultValues := make([]__FieldValue__, len(fields))
+            		for i, field := range fields {
+            			res, err := __convertValueToResultValue__(valueOfRes.FieldByName(field.Name))
+            			fmt.Println(res)
+            			__checkErrorAndExitToUtBotGoExecutor__(err)
+
+            			resultValues[i] = __FieldValue__{
+            				Name:  field.Name,
+            				Value: res,
+            			}
+            		}
+            		return __StructValue__{
+            			Type:  strings.Replace(valueOfRes.Type().Name(), valueOfRes.Type().PkgPath()+".", "", 1),
+            			Value: resultValues,
+            		}, nil
+            	case reflect.Array:
+            		elem := valueOfRes.Type().Elem()
+            		elementType := strings.Replace(elem.String(), elem.PkgPath()+".", "", 1)
+            		arrayElementValues := []interface{}{}
+            		for i := 0; i < valueOfRes.Len(); i++ {
+            			arrayElementValue, err := __convertValueToResultValue__(valueOfRes.Index(i))
+            			__checkErrorAndExitToUtBotGoExecutor__(err)
+
+            			arrayElementValues = append(arrayElementValues, arrayElementValue)
+            		}
+            		return __ArrayValue__{
+            			Type:        valueOfRes.Type().String(),
+            			ElementType: elementType,
+            			Length:      len(arrayElementValues),
+            			Value:       arrayElementValues,
+            		}, nil
             	default:
-            		return fmt.Sprintf("%v", typedValue)
+            		return nil, errors.New("unsupported result type: " + valueOfRes.Type().String())
             	}
-            }
-        """.trimIndent()
-
-        private val convertValueToRawValueFunction = """
-            func __convertValueToRawValueForUtBotGoExecutor__(value any) *string {
-            	if value == nil {
-            		return nil
-            	} else {
-            		rawValue := __convertValueToStringForUtBotGoExecutor__(value)
-            		return &rawValue
-            	}
-            }
-        """.trimIndent()
-
-        private val getValueRawGoTypeFunction = """
-            func __getValueRawGoTypeForUtBotGoExecutor__(value any) string {
-            	return __convertValueToStringForUtBotGoExecutor__(reflect.TypeOf(value))
             }
         """.trimIndent()
 
@@ -196,7 +249,7 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             func __executeFunctionForUtBotGoExecutor__(
             	functionName string,
             	timeoutMillis time.Duration,
-            	wrappedFunction func() []*string,
+            	wrappedFunction func() []interface{},
             ) __UtBotGoExecutorRawExecutionResult__ {
             	ctxWithTimeout, cancel := context.WithTimeout(context.Background(), timeoutMillis)
             	defer cancel()
@@ -206,7 +259,7 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             		executionResult := __UtBotGoExecutorRawExecutionResult__{
             			FunctionName:    functionName,
             			TimeoutExceeded: false,
-            			ResultRawValues: nil,
+            			ResultRawValues: []interface{}{},
             			PanicMessage:    nil,
             		}
             		panicked := true
@@ -214,17 +267,19 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             			panicMessage := recover()
             			if panicked {
             				_, implementsError := panicMessage.(error)
+            				resultValue, err := __convertValueToResultValue__(reflect.ValueOf(panicMessage))
+            				__checkErrorAndExitToUtBotGoExecutor__(err)
+            				
             				executionResult.PanicMessage = &__UtBotGoExecutorRawPanicMessage__{
-            					RawValue:        __convertValueToRawValueForUtBotGoExecutor__(panicMessage),
-            					GoTypeName:      __getValueRawGoTypeForUtBotGoExecutor__(panicMessage),
+            				    RawResultValue:  resultValue,
             					ImplementsError: implementsError,
-            				}
+                            }
             			}
             			done <- executionResult
             		}()
 
-            		rawResultValues := wrappedFunction()
-            		executionResult.ResultRawValues = rawResultValues
+            		resultValues := wrappedFunction()
+            		executionResult.ResultRawValues = resultValues
             		panicked = false
             	}()
 
@@ -235,7 +290,7 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             		return __UtBotGoExecutorRawExecutionResult__{
             			FunctionName:    functionName,
             			TimeoutExceeded: true,
-                        ResultRawValues: nil,
+            			ResultRawValues: []interface{}{},
             			PanicMessage:    nil,
             		}
             	}
@@ -244,25 +299,29 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
 
         private val wrapResultValuesFunction = """
             //goland:noinspection GoPreferNilSlice
-            func __wrapResultValuesForUtBotGoExecutor__(values ...any) []*string {
-            	rawValues := []*string{}
+            func __wrapResultValuesForUtBotGoExecutor__(values ...any) []interface{} {
+            	rawValues := []interface{}{}
             	for _, value := range values {
-            		rawValues = append(rawValues, __convertValueToRawValueForUtBotGoExecutor__(value))
+            		resultValue, err := __convertValueToResultValue__(reflect.ValueOf(value))
+            		__checkErrorAndExitToUtBotGoExecutor__(err)
+            		
+            		rawValues = append(rawValues, resultValue)
             	}
             	return rawValues
             }
         """.trimIndent()
 
         val topLevelHelperStructsAndFunctions = listOf(
+            primitiveValueStruct,
+            fieldValueStruct,
+            structValueStruct,
+            arrayValueStruct,
             panicMessageStruct,
             rawExecutionResultStruct,
             rawExecutionResultsStruct,
             checkErrorFunction,
             convertFloat64ValueToStringFunction,
-            convertFloat32ValueToStringFunction,
-            convertValueToStringFunction,
-            convertValueToRawValueFunction,
-            getValueRawGoTypeFunction,
+            convertValueToResultValueFunction,
             executeFunctionFunction,
             wrapResultValuesFunction,
         )
