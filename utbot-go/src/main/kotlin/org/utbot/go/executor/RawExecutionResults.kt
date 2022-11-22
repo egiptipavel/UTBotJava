@@ -12,7 +12,17 @@ import kotlin.reflect.KClass
 data class PrimitiveValue(
     override val type: String,
     override val value: String,
-) : RawResultValue(type, value)
+) : RawResultValue(type, value) {
+    override fun checkIsEqualTypes(type: GoTypeId): Boolean {
+        if (!type.isPrimitiveGoType) {
+            return false
+        }
+        if (this.type != type.simpleName) {
+            return false
+        }
+        return true
+    }
+}
 
 data class StructValue(
     override val type: String,
@@ -22,6 +32,24 @@ data class StructValue(
         val name: String,
         val value: RawResultValue
     )
+
+    override fun checkIsEqualTypes(type: GoTypeId): Boolean {
+        if (type !is GoStructTypeId) {
+            return false
+        }
+        if (value.size != type.fields.size) {
+            return false
+        }
+        value.zip(type.fields).forEach { (fieldValue, fieldId) ->
+            if (fieldValue.name != fieldId.name) {
+                return false
+            }
+            if (!fieldValue.value.checkIsEqualTypes(fieldId.declaringClass as GoTypeId)) {
+                return false
+            }
+        }
+        return true
+    }
 }
 
 data class ArrayValue(
@@ -29,46 +57,26 @@ data class ArrayValue(
     val elementType: String,
     val length: Int,
     override val value: List<RawResultValue>
-) : RawResultValue(type, value)
-
-@TypeFor(field = "type", adapter = RawResultValueAdapter::class)
-abstract class RawResultValue(open val type: String, open val value: Any)
-
-fun RawResultValue.checkIsEqualTypes(resultType: GoTypeId): Boolean {
-    if (this.type != resultType.simpleName) {
-        return false
-    }
-    if (resultType.isPrimitiveGoType) {
-        return this is PrimitiveValue
-    }
-    when (resultType) {
-        is GoStructTypeId -> {
-            val structValue = this as? StructValue ?: return false
-            if (structValue.value.size != resultType.fields.size) {
+) : RawResultValue(type, value) {
+    override fun checkIsEqualTypes(type: GoTypeId): Boolean {
+        if (type !is GoArrayTypeId) {
+            return false
+        }
+        if (length != type.length || elementType != type.elementClassId.simpleName) {
+            return false
+        }
+        value.forEach { arrayElementValue ->
+            if (!arrayElementValue.checkIsEqualTypes(type.elementClassId as GoTypeId)) {
                 return false
             }
-            structValue.value.zip(resultType.fields).forEach { (fieldValue, fieldId) ->
-                when {
-                    fieldValue.name != fieldId.name -> return false
-                    !fieldValue.value.checkIsEqualTypes(fieldId.declaringClass as GoTypeId) -> return false
-                }
-            }
         }
-        is GoArrayTypeId -> {
-            val arrayValue = this as? ArrayValue ?: return false
-            when {
-                arrayValue.length != resultType.length -> return false
-                arrayValue.elementType != resultType.elementClassId.simpleName -> return false
-            }
-            arrayValue.value.forEach { arrayElementValue ->
-                if (!arrayElementValue.checkIsEqualTypes(resultType.elementClassId as GoTypeId)) {
-                    return false
-                }
-            }
-        }
-        else -> return false
+        return true
     }
-    return true
+}
+
+@TypeFor(field = "type", adapter = RawResultValueAdapter::class)
+abstract class RawResultValue(open val type: String, open val value: Any) {
+    abstract fun checkIsEqualTypes(type: GoTypeId): Boolean
 }
 
 class RawResultValueAdapter : TypeAdapter<RawResultValue> {
