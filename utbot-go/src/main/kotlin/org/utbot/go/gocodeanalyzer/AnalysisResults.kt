@@ -66,8 +66,10 @@ internal data class AnalyzedFunctionParameter(val name: String, val type: Analyz
 
 internal data class AnalyzedFunction(
     val name: String,
+    val modifiedName: String,
     val parameters: List<AnalyzedFunctionParameter>,
     val resultTypes: List<AnalyzedType>,
+    val modifiedFunctionForCollectingTraces: String
 )
 
 internal data class AnalysisResult(

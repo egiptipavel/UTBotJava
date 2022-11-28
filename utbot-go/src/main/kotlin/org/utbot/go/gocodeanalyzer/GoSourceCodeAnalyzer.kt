@@ -2,7 +2,9 @@ package org.utbot.go.gocodeanalyzer
 
 import org.utbot.common.FileUtil.extractDirectoryFromArchive
 import org.utbot.common.scanForResourcesContaining
-import org.utbot.go.api.*
+import org.utbot.go.api.GoUtFile
+import org.utbot.go.api.GoUtFunction
+import org.utbot.go.api.GoUtFunctionParameter
 import org.utbot.go.util.executeCommandByNewProcessOrFail
 import org.utbot.go.util.parseFromJsonOrFail
 import org.utbot.go.util.writeJsonToFileOrFail
@@ -70,9 +72,11 @@ object GoSourceCodeAnalyzer {
                     val resultTypes = analyzedFunction.resultTypes.map { analyzedType -> analyzedType.toGoTypeId() }
                     GoUtFunction(
                         analyzedFunction.name,
+                        analyzedFunction.modifiedName,
                         parameters,
                         resultTypes,
                         emptyList(), // TODO: extract concrete values from function's body
+                        analyzedFunction.modifiedFunctionForCollectingTraces,
                         sourceFile
                     )
                 }
@@ -106,7 +110,7 @@ object GoSourceCodeAnalyzer {
     }
 
     private fun getGoCodeAnalyzerSourceFilesNames(): List<String> {
-        return listOf("main.go", "analyzer_core.go", "analysis_targets.go", "analysis_results.go")
+        return listOf("main.go", "analyzer_core.go", "analysis_targets.go", "analysis_results.go", "cover.go")
     }
 
     private fun createAnalysisTargetsFileName(): String {

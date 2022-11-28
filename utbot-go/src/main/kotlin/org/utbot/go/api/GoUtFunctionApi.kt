@@ -17,9 +17,11 @@ data class GoUtFunctionParameter(val name: String, val type: GoTypeId)
 
 data class GoUtFunction(
     val name: String,
+    val modifiedName: String,
     val parameters: List<GoUtFunctionParameter>,
     val resultTypes: List<GoTypeId>,
     val concreteValues: Collection<FuzzedConcreteValue>,
+    val ModifiedFunctionForCollectingTraces: String,
     private val sourceFile: GoUtFile
 ) {
     val parametersNames: List<String> get() = parameters.map { it.name }

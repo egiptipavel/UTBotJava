@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"go/ast"
 	"go/importer"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"go/types"
 	"sort"
@@ -152,7 +154,7 @@ func checkIsSupported(signature *types.Signature) bool {
 	return true
 }
 
-func collectTargetAnalyzedFunctions(info *types.Info, targetFunctionsNames []string) (
+func collectTargetAnalyzedFunctions(fset *token.FileSet, info *types.Info, targetFunctionsNames []string) (
 	analyzedFunctions []AnalyzedFunction,
 	notSupportedFunctionsNames []string,
 	notFoundFunctionsNames []string,
@@ -167,14 +169,15 @@ func collectTargetAnalyzedFunctions(info *types.Info, targetFunctionsNames []str
 		foundTargetFunctionsNamesMap[functionName] = false
 	}
 
-	for _, obj := range info.Defs {
+	for ident, obj := range info.Defs {
 		switch typedObj := obj.(type) {
 		case *types.Func:
 			analyzedFunction := AnalyzedFunction{
-				Name:        typedObj.Name(),
-				Parameters:  []AnalyzedFunctionParameter{},
-				ResultTypes: []interface{}{},
-				position:    typedObj.Pos(),
+				Name:         typedObj.Name(),
+				ModifiedName: createNewFunctionName(typedObj.Name()),
+				Parameters:   []AnalyzedFunctionParameter{},
+				ResultTypes:  []interface{}{},
+				position:     typedObj.Pos(),
 			}
 
 			if !selectAll {
@@ -207,6 +210,22 @@ func collectTargetAnalyzedFunctions(info *types.Info, targetFunctionsNames []str
 				}
 			}
 
+			funcDecl := ident.Obj.Decl.(*ast.FuncDecl)
+			funcDecl.Name = ast.NewIdent(analyzedFunction.ModifiedName)
+
+			visitor := Visitor{counter: 0}
+			ast.Walk(&visitor, funcDecl)
+
+			var modifiedFunction bytes.Buffer
+			cfg := printer.Config{
+				Mode:     printer.TabIndent,
+				Tabwidth: 4,
+				Indent:   0,
+			}
+			err := cfg.Fprint(&modifiedFunction, fset, funcDecl)
+			checkError(err)
+
+			analyzedFunction.ModifiedFunctionForCollectingTraces = modifiedFunction.String()
 			analyzedFunctions = append(analyzedFunctions, analyzedFunction)
 		}
 	}

@@ -36,7 +36,7 @@ func analyzeTarget(target AnalysisTarget) AnalysisResult {
 
 	// collect required info about selected functions
 	analyzedFunctions, notSupportedFunctionsNames, notFoundFunctionsNames :=
-		collectTargetAnalyzedFunctions(info, target.TargetFunctionsNames)
+		collectTargetAnalyzedFunctions(fset, info, target.TargetFunctionsNames)
 
 	return AnalysisResult{
 		AbsoluteFilePath:           target.AbsoluteFilePath,

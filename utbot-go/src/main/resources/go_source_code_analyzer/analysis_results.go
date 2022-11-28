@@ -29,10 +29,12 @@ type AnalyzedFunctionParameter struct {
 }
 
 type AnalyzedFunction struct {
-	Name        string                      `json:"name"`
-	Parameters  []AnalyzedFunctionParameter `json:"parameters"`
-	ResultTypes []interface{}               `json:"resultTypes"`
-	position    token.Pos
+	Name                                string                      `json:"name"`
+	ModifiedName                        string                      `json:"modifiedName"`
+	Parameters                          []AnalyzedFunctionParameter `json:"parameters"`
+	ResultTypes                         []interface{}               `json:"resultTypes"`
+	ModifiedFunctionForCollectingTraces string                      `json:"modifiedFunctionForCollectingTraces"`
+	position                            token.Pos
 }
 
 type AnalysisResult struct {
