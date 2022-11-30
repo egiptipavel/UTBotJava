@@ -36,8 +36,11 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
                 executorTestFunctionName,
                 rawExecutionResultsFileName
             )
+        val modifiedFunctions = fuzzedFunctions.map { (function, _) ->
+            function.modifiedFunctionForCollectingTraces
+        }.toSet().toList()
         fileCodeBuilder.addTopLevelElements(
-            CodeTemplates.topLevelHelperStructsAndFunctions + listOf(executorTestFunctionCode)
+            CodeTemplates.topLevelHelperStructsAndFunctions + modifiedFunctions + listOf(executorTestFunctionCode)
         )
 
         return fileCodeBuilder.buildCodeString()
@@ -55,13 +58,14 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
         codeSb.append("\n\texecutionResults := __UtBotGoExecutorRawExecutionResults__{Results: []__UtBotGoExecutorRawExecutionResult__{")
 
         fuzzedFunctions.forEach { fuzzedFunction ->
-            val fuzzedFunctionCall = generateFuzzedFunctionCall(fuzzedFunction)
+            val fuzzedFunctionCall = generateFuzzedFunctionCall(fuzzedFunction.function.modifiedName, fuzzedFunction)
             val function = fuzzedFunction.function
             val timeoutMillis = eachExecutionTimeoutsMillisConfig[function]
 
             codeSb.append("\n\t\t__executeFunctionForUtBotGoExecutor__(")
                 .append("\"${function.name}\", $timeoutMillis*time.Millisecond, ")
                 .append("func() []interface{} {")
+                .append("\n\t\t\t__traces__ = []int{}")
 
             if (function.resultTypes.isEmpty()) {
                 codeSb.append("\n\t\t\t$fuzzedFunctionCall")
@@ -93,6 +97,10 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
     }
 
     private object CodeTemplates {
+
+        private val traces = """
+            var __traces__ []int
+        """.trimIndent()
 
         private val primitiveValueStruct = """
             type __PrimitiveValue__ struct {
@@ -137,6 +145,7 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             	TimeoutExceeded bool                                `json:"timeoutExceeded"`
             	ResultRawValues []interface{}                       `json:"resultRawValues"`
             	PanicMessage    *__UtBotGoExecutorRawPanicMessage__ `json:"panicMessage"`
+            	Trace           []int                               `json:"trace"`
             }
         """.trimIndent()
 
@@ -269,12 +278,13 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             				_, implementsError := panicMessage.(error)
             				resultValue, err := __convertValueToResultValue__(reflect.ValueOf(panicMessage))
             				__checkErrorAndExitToUtBotGoExecutor__(err)
-            				
+
             				executionResult.PanicMessage = &__UtBotGoExecutorRawPanicMessage__{
-            				    RawResultValue:  resultValue,
+            					RawResultValue:  resultValue,
             					ImplementsError: implementsError,
-                            }
+            				}
             			}
+            			executionResult.Trace = __traces__
             			done <- executionResult
             		}()
 
@@ -292,6 +302,7 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
             			TimeoutExceeded: true,
             			ResultRawValues: []interface{}{},
             			PanicMessage:    nil,
+            			Trace:           __traces__,
             		}
             	}
             }
@@ -312,6 +323,7 @@ internal object GoFuzzedFunctionsExecutorCodeGenerationHelper {
         """.trimIndent()
 
         val topLevelHelperStructsAndFunctions = listOf(
+            traces,
             primitiveValueStruct,
             fieldValueStruct,
             structValueStruct,

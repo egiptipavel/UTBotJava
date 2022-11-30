@@ -1,11 +1,9 @@
 package org.utbot.go.logic
 
+import org.utbot.go.GoEngine
 import org.utbot.go.api.GoUtFile
 import org.utbot.go.api.GoUtFunction
-import org.utbot.go.api.GoUtFuzzedFunction
 import org.utbot.go.api.GoUtFuzzedFunctionTestCase
-import org.utbot.go.executor.GoFuzzedFunctionsExecutor
-import org.utbot.go.fuzzer.GoFuzzer
 
 object GoTestCasesGenerator {
 
@@ -15,20 +13,10 @@ object GoTestCasesGenerator {
         goExecutableAbsolutePath: String,
         eachExecutionTimeoutsMillisConfig: EachExecutionTimeoutsMillisConfig,
     ): List<GoUtFuzzedFunctionTestCase> {
-        val fuzzedFunctions = functions.map { function ->
-            GoFuzzer.goFuzzing(function = function).shuffled().take(5).map { fuzzedParametersValues ->
-                GoUtFuzzedFunction(function, fuzzedParametersValues)
-            }.toList()
+        return functions.map { function ->
+            GoEngine(function, sourceFile, goExecutableAbsolutePath, eachExecutionTimeoutsMillisConfig).fuzzing()
+                .toList()
         }.flatten()
-
-        return GoFuzzedFunctionsExecutor.executeGoSourceFileFuzzedFunctions(
-            sourceFile,
-            fuzzedFunctions,
-            goExecutableAbsolutePath,
-            eachExecutionTimeoutsMillisConfig
-        ).map { (fuzzedFunction, executionResult) ->
-            GoUtFuzzedFunctionTestCase(fuzzedFunction, executionResult)
-        }
     }
 
 }

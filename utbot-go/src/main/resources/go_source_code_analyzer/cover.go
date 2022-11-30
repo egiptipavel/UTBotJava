@@ -7,33 +7,24 @@ import (
 )
 
 type Visitor struct {
-	counter int
+	counter         int
+	functionName    string
+	newFunctionName string
 }
 
-func (f *Visitor) Visit(node ast.Node) ast.Visitor {
+func (v *Visitor) Visit(node ast.Node) ast.Visitor {
 	switch n := node.(type) {
-	case *ast.FuncDecl:
-		if n.Body != nil {
-			f.Visit(n.Body)
-		}
 	case *ast.BlockStmt:
 		if n == nil {
-			n = &ast.BlockStmt{List: []ast.Stmt{}}
+			n = &ast.BlockStmt{}
 		}
-		n.List = f.addLineWithLoggingInTrace(n.List)
-		for i, stmt := range n.List {
-			if i != 0 {
-				f.Visit(stmt)
-			}
-		}
+		n.List = v.addLinesWithLoggingInTraceBeforeFirstReturnStatement(n.List)
+		return nil
 	case *ast.IfStmt:
-		if n.Init != nil {
-			f.Visit(n.Init)
+		if n.Body == nil {
+			return nil
 		}
-		if n.Cond != nil {
-			f.Visit(n.Cond)
-		}
-		f.Visit(n.Body)
+		ast.Walk(v, n.Body)
 		if n.Else == nil {
 			n.Else = &ast.BlockStmt{}
 		}
@@ -41,19 +32,20 @@ func (f *Visitor) Visit(node ast.Node) ast.Visitor {
 		case *ast.IfStmt:
 			n.Else = &ast.BlockStmt{List: []ast.Stmt{stmt}}
 		}
-		f.Visit(n.Else)
+		ast.Walk(v, n.Else)
 		return nil
 	case *ast.ForStmt:
-		if n.Init != nil {
-			f.Visit(n.Init)
+		if n.Body == nil {
+			return nil
 		}
-		if n.Cond != nil {
-			f.Visit(n.Cond)
+		ast.Walk(v, n.Body)
+		return nil
+	case *ast.RangeStmt:
+		if n.Body == nil {
+			return nil
 		}
-		if n.Post != nil {
-			f.Visit(n.Post)
-		}
-		f.Visit(n.Body)
+		ast.Walk(v, n.Body)
+		return nil
 	case *ast.SwitchStmt:
 		hasDefault := false
 		if n.Body == nil {
@@ -69,8 +61,9 @@ func (f *Visitor) Visit(node ast.Node) ast.Visitor {
 			n.Body.List = append(n.Body.List, &ast.CaseClause{})
 		}
 		for _, stmt := range n.Body.List {
-			f.Visit(stmt)
+			ast.Walk(v, stmt)
 		}
+		return nil
 	case *ast.TypeSwitchStmt:
 		hasDefault := false
 		if n.Body == nil {
@@ -86,71 +79,65 @@ func (f *Visitor) Visit(node ast.Node) ast.Visitor {
 			n.Body.List = append(n.Body.List, &ast.CaseClause{})
 		}
 		for _, stmt := range n.Body.List {
-			f.Visit(stmt)
+			ast.Walk(v, stmt)
 		}
+		return nil
 	case *ast.SelectStmt:
 		if n.Body == nil {
 			return nil
 		}
 		for _, stmt := range n.Body.List {
-			f.Visit(stmt)
+			ast.Walk(v, stmt)
 		}
+		return nil
 	case *ast.CaseClause:
-		n.Body = f.addLineWithLoggingInTrace(n.Body)
-		for i, stmt := range n.Body {
-			if i != 0 {
-				f.Visit(stmt)
-			}
+		for _, expr := range n.List {
+			ast.Walk(v, expr)
 		}
+		n.Body = v.addLinesWithLoggingInTraceBeforeFirstReturnStatement(n.Body)
+		return nil
 	case *ast.CommClause:
-		n.Body = f.addLineWithLoggingInTrace(n.Body)
-		for i, stmt := range n.Body {
-			if i != 0 {
-				f.Visit(stmt)
-			}
+		ast.Walk(v, n.Comm)
+		n.Body = v.addLinesWithLoggingInTraceBeforeFirstReturnStatement(n.Body)
+		return nil
+	case *ast.CallExpr:
+		if name, ok := n.Fun.(*ast.Ident); ok && name.Name == v.functionName {
+			n.Fun = ast.NewIdent(v.newFunctionName)
 		}
 	}
-	return nil
+	return v
 }
 
-func (f *Visitor) addLineWithLoggingInTrace(stmts []ast.Stmt) []ast.Stmt {
-	var newList = []ast.Stmt{f.newLineWithLoggingInTrace()}
-	newList = append(newList, stmts...)
+func (v *Visitor) addLinesWithLoggingInTraceBeforeFirstReturnStatement(stmts []ast.Stmt) []ast.Stmt {
+	if len(stmts) == 0 {
+		return []ast.Stmt{v.newLineWithLoggingInTrace()}
+	}
+
+	var newList []ast.Stmt
+	for _, stmt := range stmts {
+		newList = append(newList, v.newLineWithLoggingInTrace())
+		ast.Walk(v, stmt)
+		newList = append(newList, stmt)
+		if _, ok := stmt.(*ast.ReturnStmt); ok {
+			break
+		}
+	}
 	return newList
 }
 
-func (f *Visitor) newLineWithLoggingInTrace() ast.Stmt {
-	f.counter++
+func (v *Visitor) newLineWithLoggingInTrace() ast.Stmt {
+	v.counter++
 
-	idx := &ast.BinaryExpr{
-		X: &ast.CallExpr{
-			Fun:  ast.NewIdent("len"),
-			Args: []ast.Expr{ast.NewIdent("__traces__")},
-		},
-		Op: token.SUB,
-		Y: &ast.BasicLit{
-			Kind:  token.INT,
-			Value: "1",
-		},
-	}
-	traces := &ast.IndexExpr{
-		X:     ast.NewIdent("__traces__"),
-		Index: idx,
-	}
+	traces := ast.NewIdent("__traces__")
 	return &ast.AssignStmt{
 		Lhs: []ast.Expr{traces},
 		Tok: token.ASSIGN,
 		Rhs: []ast.Expr{
 			&ast.CallExpr{
-				Fun: ast.NewIdent("append"),
-				Args: []ast.Expr{
-					&ast.IndexExpr{
-						X:     ast.NewIdent("__traces__"),
-						Index: idx,
-					},
-					ast.NewIdent(strconv.Itoa(f.counter)),
-				},
-			}},
+				Fun:  ast.NewIdent("append"),
+				Args: []ast.Expr{traces, ast.NewIdent(strconv.Itoa(v.counter))},
+			},
+		},
 	}
 }
 

@@ -94,7 +94,7 @@ object GoFuzzedFunctionsExecutor {
         timeoutMillis: Long
     ): GoUtExecutionResult {
         if (rawExecutionResult.timeoutExceeded) {
-            return GoUtTimeoutExceeded(timeoutMillis)
+            return GoUtTimeoutExceeded(timeoutMillis, rawExecutionResult.trace)
         }
         if (rawExecutionResult.panicMessage != null) {
             val (rawResultValue, _) = rawExecutionResult.panicMessage
@@ -103,7 +103,7 @@ object GoFuzzedFunctionsExecutor {
             } else {
                 error("Only primitive panic value is currently supported")
             }
-            return GoUtPanicFailure(panicValue, GoTypeId(rawResultValue.type))
+            return GoUtPanicFailure(panicValue, GoTypeId(rawResultValue.type), rawExecutionResult.trace)
         }
         if (rawExecutionResult.resultRawValues.size != functionResultTypes.size) {
             error("Function completed execution must have as many result raw values as result types.")
@@ -122,9 +122,9 @@ object GoFuzzedFunctionsExecutor {
                 createGoUtModelFromRawValue(rawResultValue, resultType)
             }
         return if (executedWithNonNilErrorString) {
-            GoUtExecutionWithNonNilError(resultValues)
+            GoUtExecutionWithNonNilError(resultValues, rawExecutionResult.trace)
         } else {
-            GoUtExecutionSuccess(resultValues)
+            GoUtExecutionSuccess(resultValues, rawExecutionResult.trace)
         }
     }
 

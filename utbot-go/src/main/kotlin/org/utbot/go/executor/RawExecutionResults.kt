@@ -102,6 +102,7 @@ internal data class RawExecutionResult(
     val timeoutExceeded: Boolean,
     val resultRawValues: List<RawResultValue>,
     val panicMessage: RawPanicMessage?,
+    val trace: List<Int>
 )
 
 internal data class RawExecutionResults(val results: List<RawExecutionResult>)

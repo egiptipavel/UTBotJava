@@ -213,7 +213,11 @@ func collectTargetAnalyzedFunctions(fset *token.FileSet, info *types.Info, targe
 			funcDecl := ident.Obj.Decl.(*ast.FuncDecl)
 			funcDecl.Name = ast.NewIdent(analyzedFunction.ModifiedName)
 
-			visitor := Visitor{counter: 0}
+			visitor := Visitor{
+				counter:         0,
+				functionName:    analyzedFunction.Name,
+				newFunctionName: analyzedFunction.ModifiedName,
+			}
 			ast.Walk(&visitor, funcDecl)
 
 			var modifiedFunction bytes.Buffer
@@ -226,6 +230,7 @@ func collectTargetAnalyzedFunctions(fset *token.FileSet, info *types.Info, targe
 			checkError(err)
 
 			analyzedFunction.ModifiedFunctionForCollectingTraces = modifiedFunction.String()
+			analyzedFunction.NumberOfAllStatements = visitor.counter
 			analyzedFunctions = append(analyzedFunctions, analyzedFunction)
 		}
 	}

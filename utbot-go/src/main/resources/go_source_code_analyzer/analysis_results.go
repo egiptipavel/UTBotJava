@@ -34,6 +34,7 @@ type AnalyzedFunction struct {
 	Parameters                          []AnalyzedFunctionParameter `json:"parameters"`
 	ResultTypes                         []interface{}               `json:"resultTypes"`
 	ModifiedFunctionForCollectingTraces string                      `json:"modifiedFunctionForCollectingTraces"`
+	NumberOfAllStatements               int                         `json:"numberOfAllStatements"`
 	position                            token.Pos
 }
 
